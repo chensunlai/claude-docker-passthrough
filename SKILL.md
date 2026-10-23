@@ -36,6 +36,14 @@ description: 在任意兼容的 Linux Docker 服务器上构建或维护双容�
 5. **构建桌面。** 从官方 Ubuntu LTS（如 `ubuntu:24.04`）直接安装 XFCE、适配目标架构的浏览器、TigerVNC、noVNC/websockify、openssh-server、sudo、locales、tzdata、iproute2 和 util-linux。设置用户、英文、时区和服务入口，无需 systemd。浏览器以普通用户运行；仅在确有兼容性问题时使用 `--no-sandbox` 并说明取舍，不为此扩大容器权限。NVIDIA runtime 不等于完整 CUDA Toolkit，应用所需 CUDA 用户态库、nvcc/PyTorch 按需安装。新实例首次启动生成 SSH 主机密钥和 VNC 凭据，同一实例重启时保留。
 6. **启动。** app 临时授予 NET_ADMIN，入口设置 `ip route replace default via "$GATEWAY_IP" dev eth0` 和外部 DNS，再以 `setpriv --bounding-set=-net_admin --inh-caps=-net_admin --ambient-caps=-net_admin` 启动 SSH 和桌面服务，避免 sudo 子进程恢复 NET_ADMIN。不启用会阻止 sudo 的 `no-new-privileges`。配置网关就绪后启动 app，使用 `restart: unless-stopped`。执行 `docker compose up -d --build`。
 
+## 文档保留地址不能连接成功
+
+按 [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737.html)，在 gateway 的 nftables `forward` 和 `output` 链最前面丢弃目标为 `192.0.2.0/24`、`198.51.100.0/24`、`203.0.113.0/24` 的所有流量，规则必须早于 `ct state established,related accept` 和 app → TUN 放行。可使用 interval 地址集合与 `ip daddr @documentation_v4 counter drop`。把规则写进镜像入口，确保重启和重建后保留。
+
+阻断必须发生在进入 TUN/用户态代理栈之前；只在代理出口拒绝可能仍会先完成本地 TCP 握手。对这些地址使用静默 DROP，不返回合成 TCP 成功或 ICMP Echo Reply。不要把 TUN 自身使用的地址段或所需私网一并封禁。启用 IPv6 时另按其文档地址保留范围设置同等规则。
+
+针对每个 IPv4 网段选一个地址（如 `.1`）检查 TCP connect 不成功、ICMP 无 Echo Reply，并确认防火墙丢弃计数增加；同时确认正常 HTTPS 出口可用。TUN 中的 TCP 握手成功或低延迟 ping 本身不能证明远端目标可达，正常出口验收须包含应用层响应。
+
 ## 交付与维护
 
 - 只做必要检查：app 仅有 eth0/lo、TCP/UDP/DNS 出口、SSH/VNC、GPU。用户要求跳过时注明未验证，不把启动成功当成功能通过。
