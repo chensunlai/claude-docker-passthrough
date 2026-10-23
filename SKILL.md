@@ -1,53 +1,53 @@
 ---
-name: docker-vless-desktop
-description: 在任意兼容的 Linux Docker 服务器上构建或维护双容器 VLESS Reality 网关与 Ubuntu GPU 远程桌面，提供独立代理出口、SSH、VNC 和连续端口转发。
+name: claude-docker-passthrough
+description: Build or maintain a portable Docker deployment with a VLESS Reality gateway and an Ubuntu GPU desktop, including an isolated proxy exit, SSH, VNC, and a contiguous forwarded port range.
 ---
 
-# 双容器代理桌面
+# Claude Docker Passthrough
 
-生成可在目标服务器从零构建的 Docker Compose 工程。按用户指定目录或当前合适目录存放工程；不要求固定路径，不修改 Docker 数据目录。所有部署参数从目标环境和用户输入取得，不依赖原服务器的文件、镜像、账户或地址。
+Create a Docker Compose project that builds from scratch on a compatible Linux server. Use the user's chosen directory or a suitable working directory. Keep Docker's data directory unchanged. Derive deployment parameters from the target server and user input; do not depend on a previous server's files, images, accounts, paths, or addresses.
 
-## 要求
+## Requirements
 
-- 只用两个服务：`gateway` 负责 sing-box TUN、VLESS Reality 和入站转发；`app` 是完整 Ubuntu 用户空间，带 XFCE、浏览器、SSH、TigerVNC、noVNC。默认让 Compose 管理容器名，用户指定时再设置。
-- app 独立网络命名空间，只显示 `eth0` 和 `lo`；TUN 仅在 gateway 中。不共享 gateway 网络命名空间，不增加 sandbox 容器。
-- app 全部出站 TCP、UDP、DNS 经远端节点；代理失效时不得直连。宿主机和其他容器保持原网络。
-- 全英文：`LANG=LC_ALL=en_US.UTF-8`、`LANGUAGE=en_US:en`，浏览器 `en-US`，清除桌面、浏览器和 noVNC 的中文翻译资源。`TZ` 使用出口所在地的 IANA 时区，由用户指定或根据出口位置确定。
-- 普通用户名、SSH 密码或公钥由用户提供；允许免密 sudo，禁用 root SSH 登录。VNC 单独设置密码。凭据不写入 skill 或公开仓库。
-- 默认无宿主机目录挂载、Docker socket、host 网络/PID、privileged 或 SYS_ADMIN。GPU 主机通过 NVIDIA Container Toolkit 提供设备与驱动库，启用 `gpus: all`、驱动能力 `compute,utility` 和 `shm_size: 1gb`。无 GPU 时说明限制；用户同意后可按 CPU 模式部署。
+- Use exactly two services: `gateway` runs sing-box TUN, VLESS Reality, and inbound forwarding; `app` provides a full Ubuntu userspace with XFCE, a browser, SSH, TigerVNC, and noVNC. Let Compose manage container names unless the user specifies them.
+- Give app its own network namespace with only `eth0` and `lo`. Keep TUN inside gateway. Do not share gateway's network namespace or add a sandbox container.
+- Route all app outbound TCP, UDP, and DNS through the remote node. Fail closed when the proxy is unavailable. Preserve the host's and other containers' networking.
+- Use English throughout: `LANG=LC_ALL=en_US.UTF-8`, `LANGUAGE=en_US:en`, and browser locale `en-US`. Remove Chinese desktop, browser, and noVNC translation resources. Set `TZ` to the exit location's IANA timezone, supplied by the user or determined from the exit location.
+- Obtain the regular username and SSH password or public key from the user. Enable passwordless sudo and disable root SSH login. Configure a separate VNC password. Keep credentials out of this skill and public repositories.
+- Default to no host directory mounts, Docker socket, host network/PID namespace, privileged mode, or SYS_ADMIN. For GPU hosts, use NVIDIA Container Toolkit with `gpus: all`, driver capabilities `compute,utility`, and `shm_size: 1gb`. If no GPU is available, explain the limitation and use CPU mode only if acceptable to the user.
 
-## 部署参数
+## Deployment parameters
 
-集中管理以下参数，贯穿 Compose、配置和入口脚本，避免多处硬编码：
+Manage these centrally and use them consistently across Compose, configuration, and entrypoint scripts:
 
-- 节点 IP、端口、UUID、Reality public_key、short_id、server_name；域名节点先解析为 IP。
-- `APP_USER`、登录凭据、`TZ`、外部 DNS 地址。
-- 不与目标主机路由及已有 Docker 网络重叠的上联/内网子网、网关内网 IP、app IP、Docker IPAM 保留网关地址。
-- 宿主机监听地址、SSH/VNC/noVNC 发布端口、连续至少 16 个应用端口。检查实际占用及宿主机临时出站端口范围，冲突时换一段。
+- Node IP, port, UUID, Reality `public_key`, `short_id`, and `server_name`. Resolve a node hostname to an IP before configuring the connection.
+- `APP_USER`, login credentials, `TZ`, and an external DNS address.
+- Uplink and private subnets that do not overlap host routes or existing Docker networks; gateway private IP, app IP, and Docker IPAM's reserved gateway address.
+- Host bind address, published SSH/VNC/noVNC ports, and at least 16 contiguous application ports. Check existing use and the host's ephemeral port range; choose another range on conflict.
 
-监听地址取目标服务器的可达地址，或按用户要求监听所有地址。容器 SSH/VNC/noVNC 默认端口为 `22/5901/6080`；宿主机端口按可用情况选择。网关/app 地址和时区均不固定为某次部署的值。
+Bind to a reachable address on the target server, or all addresses when requested. Default container SSH/VNC/noVNC ports are `22/5901/6080`; choose available host ports. Do not hardcode addresses or timezones from a previous deployment.
 
-## 最短构建流程
+## Build and deploy
 
-1. **准备。** 检查 Docker Engine、Compose、`/dev/net/tun`、CPU 架构与 GPU runtime。确认 Engine/Compose 支持 `interface_name`、`gw_priority`、bridge isolated 模式及所用 GPU 配置。工程只需 `compose.yaml`、两个 Dockerfile、sing-box 配置和服务入口脚本；非敏感参数可放 `.env`，凭据独立保存并排除版本控制。
-2. **构建网关。** 使用固定版本或 digest 的官方 sing-box 镜像，COPY 配置和入口脚本，不 bind mount。TUN 设置 `address`、`auto_route`、`strict_route`，路由启用 `auto_detect_interface`，默认出口 VLESS Reality，使用 uTLS chrome、`xtls-rprx-vision` 和 `xudp`。字段必须匹配所选版本；支持 `dns_mode: disabled` 的版本可关闭 TUN 自动 DNS 劫持，让 DNS 作为普通代理流量处理。网关授予 NET_ADMIN、TUN 设备和 IPv4 forwarding。
-3. **连接网络与转发。** gateway 接上联 bridge（`eth0`）与内网 bridge（`eth1`），上联具有最高 `gw_priority`；app 只接内网（`eth0`）。内网设置 `internal: true` 和 `com.docker.network.bridge.gateway_mode_ipv4: isolated`，不为宿主机桥分配内网 IP。Docker IPAM 保留网关地址与 gateway 容器 IP 分开，app 实际默认路由指向 gateway 容器。全部端口通过普通 Compose `ports` 发布在 gateway，再用其容器内 nftables DNAT 到 app；向 app 转发时 SNAT 为 gateway 内网 IP，保证回包返回。预留端口段同时转发 TCP/UDP，不另外维护宿主机 NAT 服务。
-4. **阻止绕行。** gateway 先加载防火墙再启动 sing-box。上联只允许节点 IP/端口与既有连接；forward 默认拒绝，仅允许 app → TUN、已建立连接和已 DNAT 的入站连接；拒绝 app 新建连接访问网关本机。私网路由排除 TUN 以保证入站回包，同时阻断 app 经上联访问宿主机/LAN。节点 IP 更新时同步修改防火墙。app 直接使用外部 DNS，避免 Docker 内置 DNS 绕过代理。默认仅配置 IPv4；需要 IPv6 时必须同时实现代理路由与防泄漏规则。
-5. **构建桌面。** 从官方 Ubuntu LTS（如 `ubuntu:24.04`）直接安装 XFCE、适配目标架构的浏览器、TigerVNC、noVNC/websockify、openssh-server、sudo、locales、tzdata、iproute2 和 util-linux。设置用户、英文、时区和服务入口，无需 systemd。浏览器以普通用户运行；仅在确有兼容性问题时使用 `--no-sandbox` 并说明取舍，不为此扩大容器权限。NVIDIA runtime 不等于完整 CUDA Toolkit，应用所需 CUDA 用户态库、nvcc/PyTorch 按需安装。新实例首次启动生成 SSH 主机密钥和 VNC 凭据，同一实例重启时保留。
-6. **启动。** app 临时授予 NET_ADMIN，入口设置 `ip route replace default via "$GATEWAY_IP" dev eth0` 和外部 DNS，再以 `setpriv --bounding-set=-net_admin --inh-caps=-net_admin --ambient-caps=-net_admin` 启动 SSH 和桌面服务，避免 sudo 子进程恢复 NET_ADMIN。不启用会阻止 sudo 的 `no-new-privileges`。配置网关就绪后启动 app，使用 `restart: unless-stopped`。执行 `docker compose up -d --build`。
+1. **Prepare.** Check Docker Engine, Compose, `/dev/net/tun`, CPU architecture, and GPU runtime. Confirm support for `interface_name`, `gw_priority`, isolated bridge mode, and the chosen GPU configuration. Generate `compose.yaml`, two Dockerfiles, sing-box configuration, and service entrypoint scripts. Nonsecret parameters may use `.env`; store credentials separately and exclude them from version control.
+2. **Build gateway.** Pin an official sing-box image version or digest. COPY configuration and entrypoint scripts into the image rather than bind mounting them. Configure TUN `address`, `auto_route`, and `strict_route`; enable route `auto_detect_interface`. Use VLESS Reality as the default outbound with uTLS chrome, `xtls-rprx-vision`, and `xudp`. Match fields to the selected version. Where supported, `dns_mode: disabled` disables automatic TUN DNS interception so DNS travels as ordinary proxied traffic. Grant gateway NET_ADMIN, the TUN device, and IPv4 forwarding.
+3. **Connect networks and forward ports.** Attach gateway to an uplink bridge on `eth0` and a private bridge on `eth1`, with the uplink having the highest `gw_priority`. Attach app only to the private bridge on `eth0`. Set the private network to `internal: true` and `com.docker.network.bridge.gateway_mode_ipv4: isolated`, without assigning a private bridge IP to the host. Keep Docker IPAM's reserved gateway address distinct from the gateway container's IP; point app's actual default route to the container. Publish all ports on gateway using normal Compose `ports`, then DNAT to app inside gateway using nftables. SNAT forwarded inbound traffic to gateway's private IP so replies follow the return path. Forward the application port range for both TCP and UDP; do not add a separate host NAT service.
+4. **Prevent bypass.** Load gateway firewall rules before starting sing-box. Allow only the node IP/port and established traffic on the uplink. Default forwarding to drop, allowing only app-to-TUN traffic, established connections, and DNATed inbound connections. Block new app connections to gateway itself. Exclude private routes from TUN to preserve inbound replies while blocking app access to the host/LAN through the uplink. Update firewall rules whenever the node IP changes. Give app an external DNS server directly to avoid Docker embedded DNS bypass. Default to IPv4 only; IPv6 requires equivalent proxy routing and leak prevention.
+5. **Build desktop.** Start from an official Ubuntu LTS image, such as `ubuntu:24.04`. Install XFCE, a browser available for the target architecture, TigerVNC, noVNC/websockify, openssh-server, sudo, locales, tzdata, iproute2, and util-linux. Configure the user, English locale, timezone, and service entrypoint; systemd is unnecessary. Run the browser as the regular user. Use `--no-sandbox` only for a demonstrated compatibility issue and explain the reduced browser isolation; do not expand container privileges to fix it. NVIDIA runtime does not install the full CUDA Toolkit. Add application CUDA libraries, nvcc, or PyTorch as needed. Generate SSH host keys and VNC credentials on first startup, preserving them across restarts of the same instance.
+6. **Start.** Temporarily grant app NET_ADMIN. Its entrypoint runs `ip route replace default via "$GATEWAY_IP" dev eth0`, sets external DNS, then starts SSH and desktop services through `setpriv --bounding-set=-net_admin --inh-caps=-net_admin --ambient-caps=-net_admin`. This prevents service descendants, including sudo sessions, from regaining NET_ADMIN. Do not enable `no-new-privileges` when it would prevent the requested sudo access. Start app after gateway is ready, use `restart: unless-stopped`, and deploy with `docker compose up -d --build`.
 
-## 文档保留地址不能连接成功
+## Block documentation networks before TUN
 
-按 [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737.html)，在 gateway 的 nftables `forward` 和 `output` 链最前面丢弃目标为 `192.0.2.0/24`、`198.51.100.0/24`、`203.0.113.0/24` 的所有流量，规则必须早于 `ct state established,related accept` 和 app → TUN 放行。可使用 interval 地址集合与 `ip daddr @documentation_v4 counter drop`。把规则写进镜像入口，确保重启和重建后保留。
+Following [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737.html), silently drop all traffic to `192.0.2.0/24`, `198.51.100.0/24`, and `203.0.113.0/24` at the beginning of gateway's nftables `forward` and `output` chains. Place these rules before `ct state established,related accept` and app-to-TUN acceptance. An interval address set with `ip daddr @documentation_v4 counter drop` is sufficient. Include the rules in the image entrypoint so they survive restarts and rebuilds.
 
-阻断必须发生在进入 TUN/用户态代理栈之前；只在代理出口拒绝可能仍会先完成本地 TCP 握手。对这些地址使用静默 DROP，不返回合成 TCP 成功或 ICMP Echo Reply。不要把 TUN 自身使用的地址段或所需私网一并封禁。启用 IPv6 时另按其文档地址保留范围设置同等规则。
+Block before traffic enters TUN or the userspace proxy stack. Rejecting only at the proxy outbound may still allow an initial local TCP handshake. Use silent DROP for these ranges rather than synthetic TCP success or ICMP Echo Replies. Do not accidentally block the TUN addressing or required private networks. Add equivalent documentation-prefix filtering when enabling IPv6.
 
-针对每个 IPv4 网段选一个地址（如 `.1`）检查 TCP connect 不成功、ICMP 无 Echo Reply，并确认防火墙丢弃计数增加；同时确认正常 HTTPS 出口可用。TUN 中的 TCP 握手成功或低延迟 ping 本身不能证明远端目标可达，正常出口验收须包含应用层响应。
+For one address in each IPv4 range, such as `.1`, verify that TCP connect fails, no ICMP Echo Reply arrives, and firewall drop counters increase. Also verify a normal HTTPS request through the exit. A successful TUN TCP handshake or low-latency ping alone does not prove remote reachability; exit checks must include an application-layer response.
 
-## 交付与维护
+## Handoff and maintenance
 
-- 只做必要检查：app 仅有 eth0/lo、TCP/UDP/DNS 出口、SSH/VNC、GPU。用户要求跳过时注明未验证，不把启动成功当成功能通过。
-- 按实际参数交付 SSH 命令、VNC 地址、noVNC URL、端口段和凭据获取方法。应用端口需监听 `0.0.0.0`；经 DNAT/SNAT 的入站连接在 app 中显示为网关来访。
-- 默认数据保存在容器可写层：restart 保留，删除或重建会丢失新增文件。更新前停止 app 并快照或备份，再恢复到新容器；用户需要长期持久化时可选择 Docker 命名卷，按其隔离要求实施。
-- 全新部署必须从公开基础镜像构建，不依赖历史快照或本机专用文件。私有快照只用于已有实例的数据保留；迁移时可导出/导入，或重新构建后恢复备份。独立克隆实例应重新生成 SSH 主机密钥。
-- 含节点配置、账户或用户文件的镜像保持私有。复用构建缓存，不重装无关组件，不修改无关容器和网络。Docker 仍共享宿主机内核。
+- Run only relevant checks: app has eth0/lo only, TCP/UDP/DNS exit correctly, SSH/VNC work, and GPU access works. If the user requests skipping checks, state what remains unverified. Container startup alone does not establish functional success.
+- Provide the actual SSH command, VNC address, noVNC URL, forwarded port range, and credential retrieval instructions. Application services must bind to `0.0.0.0`. DNAT/SNAT makes inbound peers appear as gateway's private IP inside app.
+- By default, data lives in app's writable layer: restart preserves it; removal or recreation loses new files. Stop app and snapshot or back up before replacement, then restore into the new container. Offer Docker named volumes for long-term persistence when consistent with the user's isolation requirements.
+- Fresh deployments must build from public base images without historical snapshots or machine-specific files. Private snapshots are only for preserving an existing instance. Migrate by export/import or by rebuilding and restoring a backup. Regenerate SSH host keys for independent clones.
+- Keep images containing node credentials, accounts, or user data private. Reuse build caches, avoid reinstalling unrelated components, and leave unrelated containers and networks untouched. Docker containers still share the host kernel.
